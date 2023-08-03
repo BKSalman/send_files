@@ -1,13 +1,15 @@
 use bytes::Buf;
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+use std::borrow::Cow;
 use std::cmp::min;
 use std::fmt::Write;
-use std::net::TcpListener;
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufReader, Read, Write as IoWrite};
+use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::thread::{self, spawn};
-use std::time::Duration;
-use tungstenite::accept;
+use std::thread::spawn;
+use std::{mem, process};
 
 /// A simple program to transfer files between machines
 #[derive(Debug, Parser)]
@@ -24,9 +26,8 @@ enum SubCommands {
     /// Send a file to the machine with the specified ID
     Send {
         file: PathBuf,
-        /// Machine ID
-        #[arg(short, long)]
-        id: String,
+        // #[arg(short, long)]
+        // id: String,
     },
 }
 
@@ -39,54 +40,73 @@ fn main() {
             let server = TcpListener::bind("127.0.0.1:8101").unwrap();
             for stream in server.incoming() {
                 spawn(move || {
-                    // let mut websocket = accept(stream.unwrap()).unwrap();
                     let mut downloaded = 0;
                     let mut buffer = tungstenite::buffer::ReadBuffer::<1024>::new();
-                    let total_size = buffer.remaining();
                     let mut stream = stream.unwrap();
+
+                    let mut size_buffer = [0; mem::size_of::<u64>()];
+                    stream.read_exact(&mut size_buffer).unwrap();
+                    let total_size = u64::from_be_bytes(size_buffer);
+
                     let pb = ProgressBar::new(total_size as u64);
+
                     pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
                         .unwrap()
                         .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
                         // .progress_chars("#>-")
                     );
+
+                    let mut file = OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("/home/salman/Downloads/lmao.something")
+                        .unwrap();
                     loop {
                         let read_bytes = buffer.read_from(&mut stream).unwrap();
 
-                        // let remaining = buffer.remaining();
-
-                        if buffer.has_remaining() && downloaded < total_size {
-                            let new = min(downloaded + read_bytes, total_size);
-                            downloaded = new;
-                            pb.set_position(new as u64);
-                            thread::sleep(Duration::from_millis(12));
-
-                            pb.finish_with_message("downloaded");
-                        } else {
+                        if read_bytes == 0 {
+                            pb.abandon_with_message("Download finished!");
+                            println!("Writing file");
+                            file.write_all(&buffer.into_vec()).unwrap();
+                            break;
                         }
 
-                        // let msg = websocket.read().unwrap();
-
-                        // if msg.is_binary() {
-                        //     let data = msg.into_data();
-                        //     let total_size = data.len();
-
-                        //     progress(total_size, &mut downloaded);
-
-                        //     websocket
-                        //         .send(tungstenite::Message::Text(String::from("Done!")))
-                        //         .unwrap();
-                        // } else if msg.is_text() {
-                        //     websocket.send(msg).unwrap();
-                        // } else if msg.is_close() {
-                        //     let _ = websocket.close(None);
-                        // }
+                        if downloaded < total_size {
+                            let new = min(downloaded + read_bytes as u64, total_size);
+                            downloaded = new;
+                            pb.set_position(new as u64);
+                        }
                     }
                 });
             }
         }
-        SubCommands::Send { file, id } => {
-            println!("Send {:#?} to {}", file, id);
+        SubCommands::Send { file } => {
+            println!("Sending {:#?}", file);
+            let mut stream = TcpStream::connect("127.0.0.1:8101").unwrap();
+
+            if !file.is_file() {
+                println!("path is not a file");
+                process::exit(1);
+            }
+
+            let metadata = fs::metadata(file).unwrap();
+            let file = File::open(file).unwrap();
+            let mut reader = BufReader::new(file);
+            let mut buffer = Vec::with_capacity(metadata.len() as usize);
+
+            let read_bytes = reader.read_to_end(&mut buffer).unwrap();
+
+            if read_bytes == 0 {
+                println!("File is empty");
+                process::exit(1);
+            }
+
+            let mut file_size_be = metadata.len().to_be_bytes().to_vec();
+
+            file_size_be.extend(buffer);
+
+            stream.write(&file_size_be).unwrap();
+
             // let total_size = data.len();
             // let mut downloaded = 0;
 
