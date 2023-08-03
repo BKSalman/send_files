@@ -1,12 +1,10 @@
-use bytes::Buf;
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
-use std::borrow::Cow;
 use std::cmp::min;
 use std::fmt::Write;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, Read, Write as IoWrite};
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddrV4, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::thread::spawn;
 use std::{mem, process};
@@ -28,6 +26,8 @@ enum SubCommands {
         file: PathBuf,
         // #[arg(short, long)]
         // id: String,
+        #[arg(long)]
+        ip: SocketAddrV4,
     },
 }
 
@@ -65,8 +65,8 @@ fn main() {
                         let read_bytes = buffer.read_from(&mut stream).unwrap();
 
                         if read_bytes == 0 {
-                            pb.abandon_with_message("Download finished!");
-                            println!("Writing file");
+                            pb.abandon();
+                            println!("Download finished!");
                             file.write_all(&buffer.into_vec()).unwrap();
                             break;
                         }
@@ -80,9 +80,9 @@ fn main() {
                 });
             }
         }
-        SubCommands::Send { file } => {
+        SubCommands::Send { file, ip } => {
             println!("Sending {:#?}", file);
-            let mut stream = TcpStream::connect("127.0.0.1:8101").unwrap();
+            let mut stream = TcpStream::connect(ip).unwrap();
 
             if !file.is_file() {
                 println!("path is not a file");
