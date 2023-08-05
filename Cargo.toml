@@ -8,5 +8,7 @@ edition = "2021"
 [dependencies]
 bytes = "1.4.0"
 clap = { version = "4.3.19", features = ["derive"] }
+dirs = "5.0.1"
 indicatif = "0.17.6"
+regex = "1.9.1"
 tungstenite = { version = "0.20.0", features = ["rustls", "rustls-tls-webpki-roots"] }
