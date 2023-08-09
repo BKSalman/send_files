@@ -4,7 +4,7 @@ use std::cmp::min;
 use std::fmt::Write;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, Read, Write as IoWrite};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::thread::spawn;
 use std::time::Duration;
@@ -21,15 +21,20 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum SubCommands {
-    Listen,
+    Listen {
+        #[arg(long, short)]
+        port: Option<u16>,
+    },
     /// Send a file to the machine with the specified ID
     Send {
         #[clap(name = "FILE")]
         file_name: PathBuf,
-        // #[arg(short, long)]
-        // id: String,
+
         #[arg(long)]
         ip: IpAddr,
+
+        #[arg(long, short)]
+        port: Option<u16>,
     },
 }
 
@@ -37,9 +42,15 @@ fn main() {
     let cli = Cli::parse();
 
     match &cli.sub_command {
-        SubCommands::Listen => {
-            println!("Listening on port 8000");
-            let server = TcpListener::bind("127.0.0.1:8000").unwrap();
+        SubCommands::Listen { port } => {
+            let port = port.unwrap_or(8000);
+
+            println!("Listening on port {port}");
+
+            let server =
+                TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
+                    .unwrap();
+
             for stream in server.incoming() {
                 spawn(move || {
                     let mut downloaded = 0;
@@ -98,13 +109,15 @@ fn main() {
         SubCommands::Send {
             file_name: file_path,
             ip,
+            port,
         } => {
-            println!("Connecting to {ip}");
-            let mut stream = TcpStream::connect_timeout(
-                &SocketAddr::new(ip.to_owned(), 8000),
-                Duration::from_secs(5),
-            )
-            .unwrap();
+            let port = port.unwrap_or(8000);
+
+            println!("Connecting to {ip} with port: {port}");
+
+            let mut stream =
+                TcpStream::connect_timeout(&SocketAddr::new(*ip, port), Duration::from_secs(5))
+                    .unwrap();
 
             println!("Connected to {ip}");
 
